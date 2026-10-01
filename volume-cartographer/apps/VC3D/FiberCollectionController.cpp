@@ -1,7 +1,10 @@
 #include "FiberCollectionController.hpp"
 #include "CState.hpp"
+#include "FiberCollectionGenerator.hpp"
+#include "FiberCollectionGeneratorDialog.hpp"
 #include "ViewerManager.hpp"
 #include "OpenDataCoordinateIdentity.hpp"
+#include "PythonExecutable.hpp"
 #include "VCSettings.hpp"
 #include "LineAnnotationController.hpp"
 #include "LineAnnotationDialog.hpp"
@@ -13,11 +16,13 @@
 #include "vc/core/util/PlaneSurface.hpp"
 
 #include <QCheckBox>
+#include <QCoreApplication>
 #include <QCryptographicHash>
 #include <QDockWidget>
 #include <QDoubleSpinBox>
 #include <QFileDialog>
 #include <QFileInfo>
+#include <QFontMetricsF>
 #include <QFormLayout>
 #include <QFutureWatcher>
 #include <QGraphicsView>
@@ -30,7 +35,10 @@
 #include <QMouseEvent>
 #include <QPainter>
 #include <QPolygonF>
+#include <QProcess>
+#include <QProgressBar>
 #include <QPushButton>
+#include <QRegularExpression>
 #include <QSaveFile>
 #include <QScopeGuard>
 #include <QSettings>
@@ -38,11 +46,13 @@
 #include <QSlider>
 #include <QSpinBox>
 #include <QStyleHints>
+#include <QTemporaryDir>
 #include <QTimer>
 #include <QtConcurrent/QtConcurrentRun>
 #include <nlohmann/json.hpp>
 #include <algorithm>
 #include <cmath>
+#include <iostream>
 #include <limits>
 #include <unordered_set>
 #include <utility>
@@ -50,6 +60,73 @@
 using vc::fibers::Bounds;
 using vc::fibers::FiberCollection;
 using vc::fibers::Point;
+namespace
+{
+// Colors of the generator's block states, in processing order.
+QColor blockColor(const QString& state)
+{
+    if (state == "reading") return QColor("#6ec6ff");
+    if (state == "predicting") return QColor("#2f7bff");
+    if (state == "splines") return QColor("#a066ff");
+    if (state == "stitching") return QColor("#ff9f1c");
+    if (state == "stitched") return QColor("#ffd23f");
+    if (state == "extending") return QColor("#ff4fb0");
+    if (state == "done") return QColor("#3ecf6e");
+    return QColor("#9e9e9e");
+}
+QString blockStateLabel(const QString& state)
+{
+    if (state == "reading") return QObject::tr("reading CT");
+    if (state == "predicting") return QObject::tr("predicting");
+    if (state == "splines") return QObject::tr("fitting splines");
+    if (state == "stitching") return QObject::tr("stitching");
+    if (state == "stitched") return QObject::tr("stitched");
+    if (state == "extending") return QObject::tr("extending");
+    if (state == "done") return QObject::tr("done");
+    return QObject::tr("waiting");
+}
+// The section of a block by a plane, as a convex polygon in volume coordinates.
+std::vector<cv::Vec3f> planeSection(const vc3d::fibergen::Block& block, const cv::Vec3f& origin, const cv::Vec3f& normal)
+{
+    std::array<cv::Vec3f, 8> corners;
+    for (int c = 0; c < 8; ++c)
+        for (int a = 0; a < 3; ++a)
+            corners[c][a] = float(block.origin[a] + (((c >> a) & 1) ? block.size[a] : 0));
+    std::vector<cv::Vec3f> points;
+    auto add = [&points](const cv::Vec3f& p) {
+        for (const auto& q : points)
+            if (cv::norm(p - q) < 1e-3) return;
+        points.push_back(p);
+    };
+    for (int c = 0; c < 8; ++c)
+        for (int a = 0; a < 3; ++a) {
+            const int d = c | (1 << a);
+            if (d == c) continue;
+            const float s0 = normal.dot(corners[c] - origin), s1 = normal.dot(corners[d] - origin);
+            if (s0 * s1 > 0) continue;
+            if (s0 == s1) {
+                add(corners[c]);
+                add(corners[d]);
+            } else {
+                add(corners[c] + (corners[d] - corners[c]) * (s0 / (s0 - s1)));
+            }
+        }
+    if (points.size() < 3) return {};
+    cv::Vec3f center(0, 0, 0);
+    for (const auto& p : points) center += p;
+    center *= 1.0f / float(points.size());
+    int axis = 0;
+    for (int a = 1; a < 3; ++a)
+        if (std::abs(normal[a]) < std::abs(normal[axis])) axis = a;
+    cv::Vec3f other(0, 0, 0);
+    other[axis] = 1;
+    const cv::Vec3f u = cv::normalize(normal.cross(other)), v = normal.cross(u);
+    std::sort(points.begin(), points.end(), [&](const cv::Vec3f& p, const cv::Vec3f& q) {
+        return std::atan2(v.dot(p - center), u.dot(p - center)) < std::atan2(v.dot(q - center), u.dot(q - center));
+    });
+    return points;
+}
+}  // namespace
 using Json = nlohmann::json;
 namespace
 {
@@ -175,6 +252,26 @@ FiberCollectionController::FiberCollectionController(CState* state, ViewerManage
     collectionActions->addWidget(open, 1);
     collectionActions->addWidget(detach_);
     collectionLayout->addLayout(collectionActions);
+    create_ = new QPushButton(tr("Generate automated fibers…"), body);
+    create_->setObjectName("fiberCollectionCreate");
+    create_->setToolTip(tr("Predict fibers in a zone of the current CT volume block by block, stitch them and open them as a new Automated Fiber Volume."));
+    collectionLayout->addWidget(create_);
+    generatorProgress_ = new QProgressBar(body);
+    generatorProgress_->setRange(0, 1000);
+    generatorProgress_->setTextVisible(false);
+    generatorCancel_ = new QPushButton(tr("Cancel"), body);
+    auto* generatorRow = new QHBoxLayout;
+    generatorRow->addWidget(generatorProgress_, 1);
+    generatorRow->addWidget(generatorCancel_);
+    collectionLayout->addLayout(generatorRow);
+    generatorProgress_->hide();
+    generatorCancel_->hide();
+    generatorStatus_ = new QLabel(body);
+    generatorStatus_->setObjectName("fiberCollectionGeneratorStatus");
+    generatorStatus_->setWordWrap(true);
+    generatorStatus_->setTextInteractionFlags(Qt::TextSelectableByMouse);
+    generatorStatus_->hide();
+    collectionLayout->addWidget(generatorStatus_);
     visible_ = new QCheckBox(tr("Show volume · read only"), body);
     visible_->setChecked(true);
     collectionLayout->addWidget(visible_);
@@ -284,6 +381,24 @@ FiberCollectionController::FiberCollectionController(CState* state, ViewerManage
         if (!path.isEmpty())
             openCollection(path);
     });
+    connect(create_, &QPushButton::clicked, this, &FiberCollectionController::createCollection);
+    connect(generatorCancel_, &QPushButton::clicked, this, [this]() {
+        if (!generator_)
+            return;
+        generatorError_ = tr("Cancelled.");
+        generatorCancel_->setEnabled(false);
+#ifdef Q_OS_WIN
+        generator_->kill();
+#else
+        // SIGTERM lets the generator remove its temporary file.
+        QProcess* process = generator_;
+        process->terminate();
+        QTimer::singleShot(10000, process, [process]() {
+            if (process->state() != QProcess::NotRunning)
+                process->kill();
+        });
+#endif
+    });
     connect(visible_, &QCheckBox::toggled, this, [this]() { invalidate(); });
     connect(minLength_, &QDoubleSpinBox::valueChanged, this, [this](double length) {
         QSettings settings(vc3d::settingsFilePath(), QSettings::IniFormat);
@@ -344,6 +459,16 @@ FiberCollectionController::FiberCollectionController(CState* state, ViewerManage
 }
 FiberCollectionController::~FiberCollectionController()
 {
+    if (generator_) {
+        generator_->disconnect(this);
+#ifndef Q_OS_WIN
+        generator_->terminate();
+        generator_->waitForFinished(3000);
+#endif
+        if (generator_->state() != QProcess::NotRunning)
+            generator_->kill();
+        generator_->waitForFinished(1000);
+    }
     for (auto& [v, s] : views_)
         if (s->cancelled)
             s->cancelled->store(true);
@@ -516,6 +641,177 @@ void FiberCollectionController::openCollection(const QString& path, bool persist
             listPage(true);
             invalidate();
         });
+}
+void FiberCollectionController::showGeneratorStatus(const QString& text)
+{
+    generatorStatus_->setText(text);
+    generatorStatus_->setVisible(!text.isEmpty());
+}
+void FiberCollectionController::createCollection()
+{
+    if (generator_)
+        return;
+    dock_->show();
+    const auto volume = state_->currentVolume();
+    if (!volume || !state_->vpkg()) {
+        showGeneratorStatus(tr("Open the CT volume first."));
+        return;
+    }
+    const auto identity = vc3d::opendata::coordinateIdentityForVolume(*state_->vpkg(), state_->currentVolumeId());
+    if (!identity) {
+        showGeneratorStatus(tr("This volume has no verified coordinate identity. Attach a volume with coordinate metadata first."));
+        return;
+    }
+    // Remote volumes may be rebased on a coarser array of their OME-Zarr group.
+    const auto location = volume->isRemote() ? QString::fromStdString(volume->remoteUrl()) : vc3d::pathToQString(volume->path());
+    if (location.isEmpty()) {
+        showGeneratorStatus(tr("The current volume has no location the generator can read."));
+        return;
+    }
+    const auto shape = volume->shapeXyz();
+    std::array<int, 3> center{shape[0] / 2, shape[1] / 2, shape[2] / 2};
+    if (const auto* focus = state_->poi("focus"))
+        for (int i = 0; i < 3; ++i)
+            center[i] = int(std::lround(focus->p[i]));
+    FiberCollectionGeneratorDialog dialog(
+        {shape[0], shape[1], shape[2]}, center, identity->sourceOriginalResolution * double(identity->sourceCoordinateScaleFactor), dock_);
+    connect(&dialog, &FiberCollectionGeneratorDialog::zoneChanged, this, [this, &dialog]() { showGenerationBlocks(dialog.blocks()); });
+    showGenerationBlocks(dialog.blocks());
+    if (dialog.exec() != QDialog::Accepted) {
+        showGenerationBlocks({});
+        return;
+    }
+    auto request = dialog.request();
+    request.volume = location;
+    request.level = volume->isRemote() ? volume->baseScaleLevel() : 0;
+    request.coordinateSpace = QString::fromStdString(identity->coordinateSpace);
+    request.nativeScale = identity->sourceCoordinateScaleFactor;
+    request.voxelSizeUm = identity->sourceOriginalResolution;
+    request.sourcePath = QString::fromStdString(identity->sourcePath);
+    generatorPreview_ = std::make_unique<QTemporaryDir>();
+    if (generatorPreview_->isValid())
+        request.previewDirectory = generatorPreview_->path();
+    const auto vesuviusSource = vc3d::fibergen::vesuviusSourceDirectory(QCoreApplication::applicationDirPath());
+    auto python = dialog.pythonExecutable();
+    if (python.isEmpty())
+        python = vc3d::fibergen::checkoutPython(vesuviusSource);
+    if (python.isEmpty())
+        python = vc3d::findPythonExecutable();
+    const auto arguments = vc3d::fibergen::arguments(request);
+
+    generatorOutput_.clear();
+    generatorError_.clear();
+    generatorLog_.clear();
+    generatorSpace_ = request.coordinateSpace;
+    generatorPython_ = python;
+    auto* process = new QProcess(this);
+    generator_ = process;
+    process->setProcessEnvironment(vc3d::fibergen::environment(QProcessEnvironment::systemEnvironment(), vesuviusSource));
+    connect(process, &QProcess::readyReadStandardOutput, this, &FiberCollectionController::readGeneratorOutput);
+    connect(process, &QProcess::readyReadStandardError, this, [this, process]() {
+        const auto text = QString::fromUtf8(process->readAllStandardError());
+        std::cerr << "[afv-generator] " << text.toStdString();
+        generatorLog_ += text.split('\n', Qt::SkipEmptyParts);
+        while (generatorLog_.size() > 20)
+            generatorLog_.removeFirst();
+    });
+    connect(process, &QProcess::finished, this, [this](int exitCode, QProcess::ExitStatus status) {
+        finishGenerator(exitCode, status == QProcess::CrashExit);
+    });
+    connect(process, &QProcess::errorOccurred, this, [this, python](QProcess::ProcessError error) {
+        if (error == QProcess::FailedToStart) {
+            generatorError_ = tr("Could not start %1. Choose the Python of your vesuvius environment.").arg(python);
+            finishGenerator(-1, true);
+        }
+    });
+    std::cout << "Starting Automated Fiber Volume generator: " << python.toStdString();
+    for (const auto& argument : arguments)
+        std::cout << " " << argument.toStdString();
+    std::cout << std::endl;
+    create_->setEnabled(false);
+    generatorCancel_->setEnabled(true);
+    generatorProgress_->setValue(0);
+    generatorProgress_->show();
+    generatorCancel_->show();
+    showGeneratorStatus(tr("Starting Python…"));
+    process->start(python, arguments);
+}
+void FiberCollectionController::readGeneratorOutput()
+{
+    while (generator_ && generator_->canReadLine()) {
+        const auto line = generator_->readLine();
+        const auto event = vc3d::fibergen::parseEvent(line);
+        if (!event) {
+            std::cout << "[afv-generator] " << line.toStdString();
+            continue;
+        }
+        using Kind = vc3d::fibergen::Event::Kind;
+        switch (event->kind) {
+        case Kind::Progress:
+            generatorProgress_->setValue(int(std::lround(event->fraction * 1000)));
+            showGeneratorStatus(event->message);
+            break;
+        case Kind::Plan:
+            showGenerationBlocks(event->blocks);
+            break;
+        case Kind::Block:
+            if (size_t(event->index) < generationStates_.size()) {
+                generationStates_[size_t(event->index)] = event->state;
+                ++generationRevision_;
+                refreshAll();
+            }
+            break;
+        case Kind::Preview:
+            openCollection(event->path, false);
+            break;
+        case Kind::Warning:
+            generatorLog_ << event->message;
+            break;
+        case Kind::Done:
+            generatorOutput_ = event->output;
+            break;
+        case Kind::Error:
+            generatorError_ = event->message;
+            break;
+        }
+    }
+}
+void FiberCollectionController::finishGenerator(int exitCode, bool crashed)
+{
+    if (!generator_)
+        return;
+    readGeneratorOutput();
+    generator_->disconnect(this);
+    generator_->deleteLater();
+    generator_ = nullptr;
+    create_->setEnabled(true);
+    generatorProgress_->hide();
+    generatorCancel_->hide();
+    showGenerationBlocks({});
+    // The previews are deleted with their folder at the end of this call.
+    const auto preview = std::move(generatorPreview_);
+    if (preview && !path_.isEmpty() && path_.startsWith(preview->path() + '/'))
+        clear();
+    if (crashed || exitCode != 0 || generatorOutput_.isEmpty()) {
+        auto message = generatorError_;
+        if (message.isEmpty())
+            message = generatorLog_.isEmpty() ? tr("The generator stopped (exit code %1).").arg(exitCode) : generatorLog_.last();
+        const auto missing = QRegularExpression("No module named '([^']+)'").match(message);
+        if (missing.hasMatch())
+            message = tr("%1 has no module %2. In Generate automated fibers…, choose the Python of an environment where vesuvius[models] is installed.")
+                          .arg(generatorPython_, missing.captured(1));
+        showGeneratorStatus(tr("No volume created: %1").arg(message));
+        return;
+    }
+    const auto identity = state_->currentVolume() && state_->vpkg()
+        ? vc3d::opendata::coordinateIdentityForVolume(*state_->vpkg(), state_->currentVolumeId())
+        : std::nullopt;
+    if (!identity || QString::fromStdString(identity->coordinateSpace) != generatorSpace_) {
+        showGeneratorStatus(tr("Created %1. Open it with the %2 volume.").arg(generatorOutput_, generatorSpace_));
+        return;
+    }
+    showGeneratorStatus({});
+    openCollection(generatorOutput_);
 }
 void FiberCollectionController::invalidate()
 {
@@ -739,12 +1035,63 @@ std::optional<FiberCollectionController::Slice> FiberCollectionController::slice
                 }
     return s;
 }
+void FiberCollectionController::showGenerationBlocks(std::vector<vc3d::fibergen::Block> blocks)
+{
+    generationBlocks_ = std::move(blocks);
+    generationStates_.assign(generationBlocks_.size(), QStringLiteral("pending"));
+    ++generationRevision_;
+    refreshAll();
+}
+void FiberCollectionController::drawGenerationBlocks(VolumeViewerBase* viewer, OverlayBuilder& builder)
+{
+    auto* plane = dynamic_cast<PlaneSurface*>(viewer->currentSurface());
+    if (!plane || generationBlocks_.empty())
+        return;
+    const cv::Vec3f origin = plane->origin();
+    const cv::Vec3f normal = cv::normalize(plane->normal({0, 0, 0}));
+    const QFont font;
+    const QFontMetricsF metrics(font);
+    for (size_t i = 0; i < generationBlocks_.size(); ++i) {
+        const auto section = planeSection(generationBlocks_[i], origin, normal);
+        if (section.empty())
+            continue;
+        QPolygonF polygon;
+        for (const auto& point : section)
+            polygon << viewer->volumeToScene(point);
+        const auto& state = generationStates_[i];
+        const bool active = state != "pending" && state != "stitched" && state != "done";
+        const QColor color = blockColor(state);
+        OverlayStyle style;
+        style.penColor = color;
+        style.penWidth = active ? 3.0 : 1.5;
+        style.brushColor = QColor(color.red(), color.green(), color.blue(), active ? 70 : 35);
+        style.z = 40;
+        QPainterPath path;
+        path.addPolygon(polygon);
+        path.closeSubpath();
+        builder.addPainterPath(path, style);
+        const auto label = tr("Block %1 · %2").arg(i + 1).arg(blockStateLabel(state));
+        const auto box = polygon.boundingRect();
+        if (box.width() > metrics.horizontalAdvance(label) + 16 && box.height() > metrics.height() * 2) {
+            OverlayStyle text;
+            text.penColor = color;
+            text.z = 41;
+            builder.addText(box.center() - QPointF(metrics.horizontalAdvance(label) / 2, metrics.height() / 2), label, font, text, true);
+        }
+    }
+}
 bool FiberCollectionController::isOverlayEnabledFor(VolumeViewerBase* viewer) const
 {
-    return viewer && enabled_ && visible_->isChecked();
+    return viewer && ((enabled_ && visible_->isChecked()) || !generationBlocks_.empty());
 }
 bool FiberCollectionController::needsOverlayRebuild(VolumeViewerBase* viewer) const
 {
+    const auto drawn = drawnGeneration_.find(viewer);
+    if (drawn == drawnGeneration_.end() ||
+        drawn->second != std::tuple(generationRevision_, visibleSceneRect(viewer), slice(viewer)))
+        return true;
+    if (!enabled_ || !visible_->isChecked())
+        return false;
     const auto found = views_.find(viewer);
     if (found == views_.end()) return true;
     const auto& v = *found->second;
@@ -826,6 +1173,10 @@ void FiberCollectionController::request(VolumeViewerBase* viewer, const Slice& s
 }
 void FiberCollectionController::collectPrimitives(VolumeViewerBase* viewer, OverlayBuilder& builder)
 {
+    drawnGeneration_[viewer] = {generationRevision_, visibleSceneRect(viewer), slice(viewer)};
+    drawGenerationBlocks(viewer, builder);
+    if (!enabled_ || !visible_->isChecked())
+        return;
     const auto current = slice(viewer);
     if (!current) {
         // The base clears this layer when no planar projection is supported.
@@ -1170,6 +1521,7 @@ void FiberCollectionController::watchAnnotationRender(LineAnnotationDialog* dial
 }
 void FiberCollectionController::detachViewer(VolumeViewerBase* viewer)
 {
+    drawnGeneration_.erase(viewer);
     if (auto it = views_.find(viewer); it != views_.end()) {
         if (it->second->cancelled)
             it->second->cancelled->store(true);

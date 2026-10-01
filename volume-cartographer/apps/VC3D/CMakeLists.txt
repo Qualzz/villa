@@ -17,6 +17,10 @@ set(srcs
     CWindow.cpp
     FiberCollectionController.cpp
     FiberCollectionController.hpp
+    FiberCollectionGenerator.cpp
+    FiberCollectionGenerator.hpp
+    FiberCollectionGeneratorDialog.cpp
+    FiberCollectionGeneratorDialog.hpp
     CWindowContextMenu.cpp
     StatusDockPanelHost.cpp
     StatusDockPanelHost.hpp
@@ -221,6 +225,8 @@ set(srcs
     segmentation/SegmentationUndoHistory.hpp
     NeuralTraceServiceManager.cpp
     NeuralTraceServiceManager.hpp
+    PythonExecutable.cpp
+    PythonExecutable.hpp
     LasagnaServiceManager.cpp
     LasagnaServiceManager.hpp
     SpiralArtifactCache.cpp

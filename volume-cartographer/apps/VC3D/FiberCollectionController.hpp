@@ -1,14 +1,18 @@
 #pragma once
 
+#include "FiberCollectionGenerator.hpp"
 #include "overlays/ViewerOverlayControllerBase.hpp"
 #include "vc/core/types/FiberCollection.hpp"
 #include <QPointF>
 #include <QPointer>
+#include <QStringList>
 #include <atomic>
 #include <memory>
 #include <limits>
 #include <optional>
+#include <tuple>
 #include <unordered_map>
+#include <vector>
 
 class CState;
 class QDockWidget;
@@ -20,6 +24,9 @@ class QCheckBox;
 class QSlider;
 class QLineEdit;
 class QPushButton;
+class QProcess;
+class QProgressBar;
+class QTemporaryDir;
 class QMainWindow;
 class LineAnnotationController;
 
@@ -68,6 +75,21 @@ private:
     QPushButton* next_{};
     QPushButton* openAnnotation_{};
     QPushButton* detach_{};
+    // A background run of the Python generator, creating a new volume.
+    QPushButton* create_{};
+    QProgressBar* generatorProgress_{};
+    QPushButton* generatorCancel_{};
+    QLabel* generatorStatus_{};
+    QPointer<QProcess> generator_;
+    QString generatorOutput_, generatorError_, generatorSpace_, generatorPython_;
+    QStringList generatorLog_;
+    // Receives the generator's previews; removed with them when the run ends.
+    std::unique_ptr<QTemporaryDir> generatorPreview_;
+    // The blocks of the zone being chosen or generated and their states,
+    // drawn on the CT views.
+    std::vector<vc3d::fibergen::Block> generationBlocks_;
+    std::vector<QString> generationStates_;
+    uint64_t generationRevision_{0};
     QString path_, attachment_;
     std::string uuid_, coordinateSpace_;
     double sourceResolution_{};
@@ -89,6 +111,7 @@ private:
     std::vector<QMetaObject::Connection> annotationRenderConnections_;
     std::optional<int> pendingIndex_;
     std::unordered_map<VolumeViewerBase*, std::unique_ptr<View>> views_;
+    std::unordered_map<VolumeViewerBase*, std::tuple<uint64_t, QRectF, std::optional<Slice>>> drawnGeneration_;
     void clear();
     void invalidate();
     void showInLineAnnotation(int64_t id);
@@ -106,4 +129,10 @@ private:
     void request(VolumeViewerBase* viewer, const Slice& slice);
     std::optional<Slice> slice(VolumeViewerBase* viewer) const;
     QString attachmentPath() const;
+    void createCollection();
+    void readGeneratorOutput();
+    void finishGenerator(int exitCode, bool crashed);
+    void showGeneratorStatus(const QString& text);
+    void showGenerationBlocks(std::vector<vc3d::fibergen::Block> blocks);
+    void drawGenerationBlocks(VolumeViewerBase* viewer, OverlayBuilder& builder);
 };

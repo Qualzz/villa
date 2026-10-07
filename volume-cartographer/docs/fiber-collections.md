@@ -3,10 +3,11 @@
 An **Automated Fiber Volume** is a single read-only SQLite file holding a large
 fiber collection, such as the output of automated fiber tracing: exact geometry,
 per-fiber annotations and a spatial index over blocks of geometry. It is written
-outside VC3D, in the format described below. VC3D displays it next to the
-editable annotations without importing it. Opening a volume reads its metadata
-and one catalog page; each view then loads only the fibers crossing its visible
-slice.
+outside VC3D, in the format described below, for example by
+`vesuvius.afv_spline_generator`, which VC3D can run (see [Create](#create)).
+VC3D displays it next to the editable annotations without importing it. Opening
+a volume reads its metadata and one catalog page; each view then loads only the
+fibers crossing its visible slice.
 
 ![A 61,486-fiber Automated Fiber Volume of PHerc. 0175A drawn on the XY and YZ CT slices with rainbow colors, next to its dock](images/fiber-collection-viewer.jpg)
 
@@ -18,6 +19,63 @@ VC3D --volpkg scroll.volpkg.json --fiber-collection fibers.afv
 
 or use **File → Open Automated Fiber Volume…**. The dock is under
 **View → Fibers**.
+
+## Create
+
+**Generate automated fibers…** in the dock predicts fibers in a zone of the
+current CT volume with a fiber model, stitches them into long fibers and opens
+the result as **Open** does. Choose where to save the new `.afv` (an existing
+file is never replaced) and the zone, in voxels of the current volume: a
+512-voxel cube centered on the focus point by default, of any size up to the
+volume. The zone is processed in cubes of **Block size** voxels (512 by
+default); while the dialog is open, the blocks are drawn on the CT views and
+the dialog shows how many there are. The other options, all remembered:
+
+* **Model**, **Test-time mirroring** (off by default: better predictions,
+  about 8× slower) and **Fiber threshold**.
+* **Join fibers across gaps** (off by default): extends the fibers across
+  gaps inside the zone with a gap model; longer fibers, several times slower.
+* **Max join angle** (45° by default): inferred joins turning more than this
+  are cut.
+* **Remove fibers shorter than** (on, 100 voxels by default).
+* **Remove fibers near the outside black** (16 voxels by default, or **Keep
+  them**): removes fibers passing this close to the black (CT value 0)
+  outside the papyrus.
+
+The number of points of every fiber is then reduced, keeping every original
+point within 0.05 voxel.
+
+VC3D runs `python -m vesuvius.afv_spline_generator` in the background and shows
+its progress under the button; **Cancel** stops it. Each block is drawn on the
+CT views in the color of its stage, labelled **Block N · stage** when it is
+large enough:
+
+| Stage | Color |
+| --- | --- |
+| waiting | grey |
+| reading CT | light blue |
+| predicting | blue |
+| fitting splines | purple |
+| stitching | orange |
+| stitched | yellow |
+| extending (with **Join fibers across gaps**) | pink |
+| done | green |
+
+After each block, the fibers stitched so far are shown as a preview; the
+final volume replaces it at the end.
+
+When VC3D runs from a build inside a villa checkout, that checkout's
+`vesuvius/src` is put first on `PYTHONPATH`. Python is the one given in the
+dialog; else, from a checkout, `vesuvius/.venv` as created by
+`uv sync --extra models`; else
+it is found as for Neural Trace (`PYTHON_EXECUTABLE`, the active conda
+environment, `~/miniconda3`, `~/anaconda3`, then the `PATH`). An application
+started from the Finder or a desktop menu doesn't see the conda environment of
+a shell. Python needs the dependencies of `vesuvius[models]` and, for
+reasonable speed, a GPU. The volume must be readable by Python: a local Zarr or a public
+`http(s)://` one, and it needs a coordinate identity (see
+[Coordinates](#coordinates)). The method and the command line are described in
+[`vesuvius/docs/afv_spline_generator.md`](../../vesuvius/docs/afv_spline_generator.md).
 
 ## Viewer
 
@@ -145,8 +203,10 @@ on Debian/Ubuntu, `sqlite` on Homebrew, `sqlite3[rtree]` with vcpkg. With
 `-DVC_TESTING=ON`:
 
 ```sh
-cmake --build build --target VC3D test_fiber_collection
-ctest --test-dir build -R test_fiber_collection --output-on-failure
+cmake --build build --target VC3D test_fiber_collection test_fiber_collection_generator
+ctest --test-dir build -R fiber_collection --output-on-failure
 ```
 
-The test writes its own `.afv` files in the format above.
+`test_fiber_collection` writes its own `.afv` files in the format above;
+`test_fiber_collection_generator` checks the generator's command line, progress
+events and zone without running Python.

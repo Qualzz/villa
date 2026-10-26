@@ -1,0 +1,80 @@
+{
+  "durationSeconds": 43.0,
+  "frames": 2580,
+  "fps": 60,
+  "resolution": [
+    1920,
+    1080
+  ],
+  "surfaceAreaCm2": 5.016224384307861,
+  "introSeconds": 10,
+  "continuationSeconds": 33,
+  "nativeUI": true,
+  "segments": [
+    {
+      "clip": "01-handoff.mp4",
+      "startSeconds": 10.0,
+      "endSeconds": 11.5
+    },
+    {
+      "clip": "02a-navigate.mp4",
+      "startSeconds": 11.5,
+      "endSeconds": 13.3
+    },
+    {
+      "clip": "02b-region.mp4",
+      "startSeconds": 13.3,
+      "endSeconds": 15.0
+    },
+    {
+      "clip": "03-slice.mp4",
+      "startSeconds": 15.0,
+      "endSeconds": 18.0
+    },
+    {
+      "clip": "04-volume.mp4",
+      "startSeconds": 18.0,
+      "endSeconds": 22.0
+    },
+    {
+      "clip": "05-context.mp4",
+      "startSeconds": 22.0,
+      "endSeconds": 23.5
+    },
+    {
+      "clip": "06-centered.mp4",
+      "startSeconds": 23.5,
+      "endSeconds": 26.0
+    },
+    {
+      "clip": "07-ribbon.mp4",
+      "startSeconds": 26.0,
+      "endSeconds": 30.0
+    },
+    {
+      "clip": "08-proximity.mp4",
+      "startSeconds": 30.0,
+      "endSeconds": 33.0
+    },
+    {
+      "clip": "09a-surface-alone.mp4",
+      "startSeconds": 33.0,
+      "endSeconds": 35.0
+    },
+    {
+      "clip": "09b-surface-fibers.mp4",
+      "startSeconds": 35.0,
+      "endSeconds": 37.0
+    },
+    {
+      "clip": "10-surface-proximity.mp4",
+      "startSeconds": 37.0,
+      "endSeconds": 39.0
+    },
+    {
+      "clip": "11-line-annotation.mp4",
+      "startSeconds": 39.0,
+      "endSeconds": 43.0
+    }
+  ]
+}

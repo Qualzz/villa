@@ -1,0 +1,13 @@
+{
+  "url": "https://dl.ash2txt.org/community-uploads/qual/AutomatedFiberVolumes/Paris4_1mm_v2_sample.afv",
+  "bytes": 803803136,
+  "sha256": "3ee4325a79bbf1949aa510cba0b22c7e4ecfd33878ac45dafc954b74dd82874f",
+  "fibers": 364708,
+  "coordinateSpace": "PHercParis4/20230205180739",
+  "voxelSizeMicrons": 7.91,
+  "nativeZClipPlanes": [
+    5128.5,
+    9128.5
+  ],
+  "testedCommit": "8fcfd24c01a635f7ee0c6cb9c7b81f0c2370be4a"
+}

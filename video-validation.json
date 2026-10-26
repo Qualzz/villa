@@ -1,0 +1,14 @@
+{
+  "path": "Paris4-sample-Fibers3D.mp4",
+  "durationSeconds": 43,
+  "fps": 60,
+  "frames": 2580,
+  "resolution": [
+    1920,
+    1080
+  ],
+  "uniqueFrames": 2564,
+  "fullDecodePassed": true,
+  "surfaceAreaCm2": 5.016224384307861,
+  "visualChecks": "Inspected decoded handoff, CT, ribbon, surface and Line Annotation frames."
+}

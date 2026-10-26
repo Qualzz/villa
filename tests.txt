@@ -1,0 +1,27 @@
+Test project <existing macOS build>
+    Start   4: test_fiber_collection
+1/9 Test   #4: test_fiber_collection .............   Passed    0.10 sec
+    Start 114: test_lasagna_line_view_surfaces
+2/9 Test #114: test_lasagna_line_view_surfaces ...   Passed    0.10 sec
+    Start 224: fiber_3d_data
+3/9 Test #224: fiber_3d_data .....................   Passed    0.13 sec
+    Start 225: fiber_3d_geometry
+4/9 Test #225: fiber_3d_geometry .................   Passed    0.03 sec
+    Start 226: fiber_3d_ribbon
+5/9 Test #226: fiber_3d_ribbon ...................   Passed    0.17 sec
+    Start 227: fiber_3d_slices
+6/9 Test #227: fiber_3d_slices ...................   Passed    0.11 sec
+    Start 228: fiber_3d_volume
+7/9 Test #228: fiber_3d_volume ...................   Passed    0.28 sec
+    Start 229: fiber_3d_surface
+8/9 Test #229: fiber_3d_surface ..................   Passed    0.29 sec
+    Start 230: fiber_3d_canvas
+9/9 Test #230: fiber_3d_canvas ...................   Passed    1.38 sec
+
+100% tests passed out of 9
+
+Label Time Summary:
+vc-core           =   2.47 sec*proc (8 tests)
+vc-specialized    =   0.10 sec*proc (1 test)
+
+Total Test time (real) =   2.59 sec

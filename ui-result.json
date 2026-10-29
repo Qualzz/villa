@@ -1,0 +1,18 @@
+{
+    "H": 767,
+    "V": 766,
+    "allFibers": 1533,
+    "clearSelection": true,
+    "complete": true,
+    "coordinatesExact": true,
+    "ctTexels": 809424,
+    "filterHOff": 766,
+    "lineAnnotationCT": 809424,
+    "lineAnnotationFibers": 1,
+    "ok": true,
+    "points": 359356,
+    "ribbonHasCT": true,
+    "ribbonStatus": "No Lasagna normals · adjust rotation · CT L2 · loading details 0%",
+    "selected": "H #6035400 · H · 193.83 mm",
+    "voxelSizeMm": 0.00791
+}

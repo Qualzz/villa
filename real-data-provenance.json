@@ -1,0 +1,11 @@
+{
+  "source": "Paris4_1mm_v2_crop_Z4000.afv",
+  "sourceUUID": "b87f7d94-d473-4385-a405-0a7aa7eb5399",
+  "fibers": 1533,
+  "points": 359356,
+  "nativeVoxelUm": 7.91,
+  "volumeId": "20230205180739",
+  "coordinateConversion": "none",
+  "json_sha256": "ccd5e31f0f62038ef8f48b0d0f7e62029d6a24a62b101d66d9bb2a5e27accb21",
+  "testedCommit": "65433d8cfc62b3db7f758647ce00799c0bddafe9"
+}

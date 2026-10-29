@@ -1,0 +1,27 @@
+Test project /Users/samir/Fiber3DReview/object-store-20261029/build
+    Start  98: test_open_data_manifest
+1/9 Test  #98: test_open_data_manifest ...........   Passed   14.08 sec
+    Start 100: test_lasagna_line_view_surfaces
+2/9 Test #100: test_lasagna_line_view_surfaces ...   Passed    0.11 sec
+    Start 196: fiber_3d_data
+3/9 Test #196: fiber_3d_data .....................   Passed    1.06 sec
+    Start 197: fiber_3d_geometry
+4/9 Test #197: fiber_3d_geometry .................   Passed    0.47 sec
+    Start 198: fiber_3d_ribbon
+5/9 Test #198: fiber_3d_ribbon ...................   Passed    0.40 sec
+    Start 199: fiber_3d_slices
+6/9 Test #199: fiber_3d_slices ...................   Passed    0.40 sec
+    Start 200: fiber_3d_volume
+7/9 Test #200: fiber_3d_volume ...................   Passed    0.98 sec
+    Start 201: fiber_3d_surface
+8/9 Test #201: fiber_3d_surface ..................   Passed    0.69 sec
+    Start 202: fiber_3d_canvas
+9/9 Test #202: fiber_3d_canvas ...................   Passed    2.24 sec
+
+100% tests passed out of 9
+
+Label Time Summary:
+vc-core           =   6.25 sec*proc (7 tests)
+vc-specialized    =  14.19 sec*proc (2 tests)
+
+Total Test time (real) =  20.45 sec
